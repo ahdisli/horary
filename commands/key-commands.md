@@ -1,0 +1,1 @@
+supabase stop --project-id quran-chat

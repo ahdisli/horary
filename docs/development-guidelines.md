@@ -179,47 +179,7 @@ export class SupabaseClient {
 }
 ```
 
-### OpenAI Realtime API Integration
-```typescript
-// WebSocket connection manager
-export class OpenAIRealtimeClient {
-  private ws: WebSocket | null = null;
-  private eventHandlers: Map<string, (data: any) => void> = new Map();
-
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(process.env.NEXT_PUBLIC_OPENAI_REALTIME_URL!);
-      
-      this.ws.onopen = () => {
-        this.authenticate();
-        resolve();
-      };
-      
-      this.ws.onmessage = (event) => {
-        this.handleMessage(JSON.parse(event.data));
-      };
-      
-      this.ws.onerror = (error) => reject(error);
-    });
-  }
-
-  sendToolCall(toolName: string, parameters: Record<string, any>): void {
-    if (!this.ws) throw new Error('WebSocket not connected');
-    
-    this.ws.send(JSON.stringify({
-      type: 'function_call',
-      function: {
-        name: toolName,
-        arguments: JSON.stringify(parameters)
-      }
-    }));
-  }
-
-  onToolResponse(handler: (response: ToolResponse) => void): void {
-    this.eventHandlers.set('tool_response', handler);
-  }
-}
-```
+### OpenAI Realtime API Integration (WebRTC)
 
 ## 🎯 Performance Optimization Patterns
 

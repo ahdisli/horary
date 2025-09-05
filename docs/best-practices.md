@@ -159,7 +159,7 @@ export const useAstrologyStore = create<AstrologyStore>((set, get) => ({
 - Implement proper RLS (Row Level Security) policies
 
 ### OpenAI Realtime API
-- Handle WebSocket connections properly
+- Handle WebRTC properly
 - Implement reconnection logic
 - Type all tool calls and responses
 - Handle rate limiting gracefully

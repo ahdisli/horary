@@ -15,7 +15,7 @@ This model shows improvements in following complex instructions, calling tools, 
 Update your session to use a prompt
 -----------------------------------
 
-After you initiate a session over [WebRTC](/docs/guides/realtime-webrtc), [WebSocket](/docs/guides/realtime-websocket), or [SIP](/docs/guides/realtime-sip), the client and model are connected. The server will send a [session.created](/docs/api-reference/realtime-server-events/session/created) event to confirm. Now it's a matter of prompting.
+After you initiate a session over [WebRTC](/docs/guides/realtime-webrtc) or [SIP](/docs/guides/realtime-sip), the client and model are connected. The server will send a [session.created](/docs/api-reference/realtime-server-events/session/created) event to confirm. Now it's a matter of prompting.
 
 ### Basic prompt update
 
@@ -60,7 +60,7 @@ const event = {
   },
 };
 
-// WebRTC data channel and WebSocket both have .send()
+// WebRTC data channel
 dataChannel.send(JSON.stringify(event));
 ```
 
@@ -95,7 +95,7 @@ event = {
       instructions: "Speak clearly and briefly. Confirm understanding before taking actions."
     }
 }
-ws.send(json.dumps(event))
+dataChannel.send(JSON.stringify(event))
 ```
 
 When the session's updated, the server emits a [session.updated](/docs/api-reference/realtime-server-events/session/updated) event with the new state of the session. You can update the session any time.

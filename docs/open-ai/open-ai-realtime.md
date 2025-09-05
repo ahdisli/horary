@@ -10,7 +10,7 @@ Our most advanced speech-to-speech model is gpt-realtime.
 This model shows improvements in following complex instructions, calling tools, and producing speech that sounds natural and expressive. For more information, see the announcement blog post.
 
 Update your session to use a prompt
-After you initiate a session over WebRTC, WebSocket, or SIP, the client and model are connected. The server will send a session.created event to confirm. Now it's a matter of prompting.
+After you initiate a session over WebRTC or SIP, the client and model are connected. The server will send a session.created event to confirm. Now it's a matter of prompting.
 
 Basic prompt update
 Create a basic audio prompt in the dashboard.
@@ -51,7 +51,7 @@ const event = {
   },
 };
 
-// WebRTC data channel and WebSocket both have .send()
+// WebRTC data channel
 dataChannel.send(JSON.stringify(event));
 When the session's updated, the server emits a session.updated event with the new state of the session. You can update the session any time.
 

@@ -1,176 +1,644 @@
-Realtime API with WebRTC
-========================
+# Realtime API with WebRTC
 
-Connect to the Realtime API using WebRTC.
+## Overview
+Connect to the Realtime API using WebRTC for browser and client-side applications. WebRTC provides superior performance for real-time media streaming over uncertain network conditions and is the recommended approach for building voice agents in web browsers.
 
-[WebRTC](https://webrtc.org/) is a powerful set of standard interfaces for building real-time applications. The OpenAI Realtime API supports connecting to realtime models through a WebRTC peer connection.
+WebRTC is a powerful set of standard interfaces for building real-time applications. The OpenAI Realtime API supports connecting to realtime models through a WebRTC peer connection, providing built-in media handling and optimized performance for client-side applications.
 
-For browser-based speech-to-speech voice applications, we recommend starting with the [Agents SDK for TypeScript](https://openai.github.io/openai-agents-js/guides/voice-agents/quickstart/), which provides higher-level helpers and APIs for managing Realtime sessions. The WebRTC interface is powerful and flexible, but lower level than the Agents SDK.
+## When to Use WebRTC
+- **Browser-based applications**: Web applications requiring voice interaction
+- **Client-side voice agents**: Direct user interaction with AI models
+- **Mobile applications**: Real-time voice features in mobile apps
+- **Better network handling**: Automatic adaptation to network conditions
+- **Built-in media handling**: Less complex audio pipeline management
 
-When connecting to a Realtime model from the client (like a web browser or mobile device), we recommend using WebRTC rather than WebSocket for more consistent performance.
+## Architecture Overview
+WebRTC connections require a backend server to generate ephemeral API keys for secure client-side use:
 
-Overview
---------
+1. Browser requests ephemeral key from your server
+2. Your server uses standard API key to request ephemeral key from OpenAI
+3. Browser uses ephemeral key to establish WebRTC connection with OpenAI
 
-Connecting to the Realtime API via WebRTC requires a backend server that can generate an ephemeral API key that can be safely used in a client-side environment (like a browser).
+![WebRTC Architecture](https://openaidevs.retool.com/api/file/55b47800-9aaf-48b9-90d5-793ab227ddd3)
 
-The process for initializing a WebRTC connection using an ephemeral API key is as follows:
+## Server-Side: Ephemeral Token Generation
 
-1.  A browser makes a request to a developer-controlled server to mint an ephemeral API key.
-2.  The developer's server uses a [standard API key](/settings/organization/api-keys) to request an ephemeral key from the [OpenAI REST API](/docs/api-reference/realtime-sessions), and returns that new key to the browser.
-3.  The browser uses the ephemeral key to authenticate a session directly with the OpenAI Realtime API as a [WebRTC peer connection](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection).
-
-![connect to realtime via WebRTC](https://openaidevs.retool.com/api/file/55b47800-9aaf-48b9-90d5-793ab227ddd3)
-
-Initializing a peer connection
-------------------------------
-
-In the browser, you can use standard WebRTC APIs to initialize a peer connection object. The code below requires a server-side endpoint that generates an ephemeral API token (which we'll see code for in a moment).
-
-```javascript
-// Get a session token for OpenAI Realtime API
-const tokenResponse = await fetch("/token");
-const data = await tokenResponse.json();
-const EPHEMERAL_KEY = data.value;
-
-// Create a peer connection
-const pc = new RTCPeerConnection();
-
-// Set up to play remote audio from the model
-audioElement.current = document.createElement("audio");
-audioElement.current.autoplay = true;
-pc.ontrack = (e) => (audioElement.current.srcObject = e.streams[0]);
-
-// Add local audio track for microphone input in the browser
-const ms = await navigator.mediaDevices.getUserMedia({
-    audio: true,
-});
-pc.addTrack(ms.getTracks()[0]);
-
-// Set up data channel for sending and receiving events
-const dc = pc.createDataChannel("oai-events");
-
-// Start the session using the Session Description Protocol (SDP)
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);
-
-const baseUrl = "https://api.openai.com/v1/realtime/calls";
-const model = "gpt-realtime";
-const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-    method: "POST",
-    body: offer.sdp,
-    headers: {
-        Authorization: `Bearer ${EPHEMERAL_KEY}`,
-        "Content-Type": "application/sdp",
-    },
-});
-
-const answer = {
-    type: "answer",
-    sdp: await sdpResponse.text(),
-};
-await pc.setRemoteDescription(answer);
-```
-
-The WebRTC APIs provide rich controls for handling media streams and input devices. For more guidance on building user interfaces on top of WebRTC, [refer to the docs on MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API).
-
-See the next section for details on implementing the server-side component that powers the `/token` endpoint used in the code above.
-
-Creating an ephemeral token
----------------------------
-
-To create an ephemeral token to use on the client-side, you will need to build a small server-side application (or integrate with an existing one) to make an [OpenAI REST API](/docs/api-reference/realtime-sessions) request for an ephemeral key. You will use a [standard API key](/settings/organization/api-keys) to authenticate this request on your backend server.
-
-Below is an example of a simple Node.js [express](https://expressjs.com/) server which mints an ephemeral API key using the REST API:
-
+### Node.js Express Server
 ```javascript
 import express from "express";
+import cors from "cors";
 
 const app = express();
+app.use(cors());
+app.use(express.json());
 
-const sessionConfig = JSON.stringify({
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+const sessionConfig = {
     session: {
         type: "realtime",
         model: "gpt-realtime",
-        audio: {
-            output: {
-                voice: "marin",
-            },
+        voice: "alloy",
+        instructions: "You are a helpful assistant. Speak clearly and concisely.",
+        modalities: ["audio", "text"],
+        input_audio_format: "pcm16",
+        output_audio_format: "pcm16",
+        input_audio_transcription: {
+            model: "whisper-1"
         },
-    },
-});
+        turn_detection: {
+            type: "server_vad",
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 200
+        },
+        tools: [],
+        tool_choice: "auto",
+        temperature: 0.8
+    }
+};
 
-// An endpoint which would work with the client code above - it returns
-// the contents of a REST API request to this protected endpoint
-app.get("/token", async (req, res) => {
+// Generate ephemeral token endpoint
+app.post("/api/realtime/token", async (req, res) => {
     try {
         const response = await fetch(
             "https://api.openai.com/v1/realtime/client_secrets",
             {
                 method: "POST",
                 headers: {
-                    Authorization: `Bearer ${apiKey}`,
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
                     "Content-Type": "application/json",
                 },
-                body: sessionConfig,
+                body: JSON.stringify(sessionConfig),
             }
         );
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
         const data = await response.json();
         res.json(data);
     } catch (error) {
         console.error("Token generation error:", error);
-        res.status(500).json({ error: "Failed to generate token" });
+        res.status(500).json({ 
+            error: "Failed to generate token",
+            details: error.message 
+        });
     }
 });
 
-app.listen(3000);
-```
-
-You can create a server endpoint like this one on any platform that can send and receive HTTP requests. Just ensure that **you only use standard OpenAI API keys on the server, not in the browser.**
-
-Sending and receiving events
-----------------------------
-
-Realtime API sessions are managed using a combination of [client-sent events](/docs/api-reference/realtime_client_events/session) emitted by you as the developer, and [server-sent events](/docs/api-reference/realtime_server_events/error) created by the Realtime API to indicate session lifecycle events.
-
-When connecting to a Realtime model via WebRTC, you will not have to handle audio events to hear model responses in the same granular way you must with [WebSockets](/docs/guides/realtime-websocket). The WebRTC peer connection object, if configured as above, will do much of that work for you.
-
-To send and receive other client and server events, you will use the WebRTC peer connection's [data channel](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Using_data_channels).
-
-```javascript
-// This is the data channel set up in the browser code above...
-const dc = pc.createDataChannel("oai-events");
-
-// Listen for server events
-dc.addEventListener("message", (e) => {
-    const event = JSON.parse(e.data);
-    console.log(event);
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Send client events
-const event = {
-    type: "conversation.item.create",
-    item: {
-        type: "message",
-        role: "user",
-        content: [
-            {
-                type: "input_text",
-                text: "hello there!",
-            },
-        ],
-    },
-};
-dc.send(JSON.stringify(event));
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
 ```
 
-To learn more about managing Realtime conversations, refer to the [Realtime conversations guide](/docs/guides/realtime-conversations).
+### Python Flask Server
+```python
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import requests
+import os
+import json
 
-[
+app = Flask(__name__)
+CORS(app)
 
-Realtime Console
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-Check out the WebRTC Realtime API in this light weight example app.
+session_config = {
+    "session": {
+        "type": "realtime",
+        "model": "gpt-realtime",
+        "voice": "alloy",
+        "instructions": "You are a helpful assistant. Speak clearly and concisely.",
+        "modalities": ["audio", "text"],
+        "input_audio_format": "pcm16",
+        "output_audio_format": "pcm16",
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.5,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 200
+        }
+    }
+}
 
-](https://github.com/openai/openai-realtime-console/)
+@app.route('/api/realtime/token', methods=['POST'])
+def generate_token():
+    try:
+        response = requests.post(
+            'https://api.openai.com/v1/realtime/client_secrets',
+            headers={
+                'Authorization': f'Bearer {OPENAI_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json=session_config
+        )
+        
+        response.raise_for_status()
+        return jsonify(response.json())
+        
+    except requests.RequestException as e:
+        return jsonify({
+            'error': 'Failed to generate token',
+            'details': str(e)
+        }), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, port=3001)
+```
+
+## Client-Side: WebRTC Implementation
+
+### Basic WebRTC Setup
+```javascript
+class RealtimeWebRTCClient {
+    constructor() {
+        this.pc = null;
+        this.dc = null;
+        this.audioElement = null;
+        this.localStream = null;
+        this.isConnected = false;
+    }
+    
+    async connect() {
+        try {
+            // Get ephemeral token from your server
+            const tokenResponse = await fetch("/api/realtime/token", {
+                method: "POST"
+            });
+            
+            if (!tokenResponse.ok) {
+                throw new Error('Failed to get token');
+            }
+            
+            const tokenData = await tokenResponse.json();
+            const ephemeralKey = tokenData.client_secret.value;
+            
+            await this.initializePeerConnection(ephemeralKey);
+            
+        } catch (error) {
+            console.error('Connection failed:', error);
+            throw error;
+        }
+    }
+    
+    async initializePeerConnection(ephemeralKey) {
+        // Create peer connection
+        this.pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
+        
+        // Set up audio output
+        this.audioElement = document.createElement("audio");
+        this.audioElement.autoplay = true;
+        this.audioElement.controls = false;
+        
+        this.pc.ontrack = (event) => {
+            this.audioElement.srcObject = event.streams[0];
+        };
+        
+        // Set up audio input
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 16000
+            }
+        });
+        
+        // Add local audio track
+        this.localStream.getTracks().forEach(track => {
+            this.pc.addTrack(track, this.localStream);
+        });
+        
+        // Set up data channel for events
+        this.dc = this.pc.createDataChannel("oai-events", {
+            ordered: true
+        });
+        
+        this.dc.onopen = () => {
+            console.log('Data channel opened');
+            this.isConnected = true;
+            this.onConnected();
+        };
+        
+        this.dc.onmessage = (event) => {
+            const serverEvent = JSON.parse(event.data);
+            this.handleServerEvent(serverEvent);
+        };
+        
+        this.dc.onerror = (error) => {
+            console.error('Data channel error:', error);
+        };
+        
+        this.dc.onclose = () => {
+            console.log('Data channel closed');
+            this.isConnected = false;
+        };
+        
+        // Create offer and set local description
+        const offer = await this.pc.createOffer();
+        await this.pc.setLocalDescription(offer);
+        
+        // Send offer to OpenAI
+        const baseUrl = "https://api.openai.com/v1/realtime/calls";
+        const model = "gpt-realtime";
+        
+        const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+            method: "POST",
+            body: offer.sdp,
+            headers: {
+                "Authorization": `Bearer ${ephemeralKey}`,
+                "Content-Type": "application/sdp",
+            },
+        });
+        
+        if (!sdpResponse.ok) {
+            throw new Error(`SDP exchange failed: ${sdpResponse.status}`);
+        }
+        
+        const answerSdp = await sdpResponse.text();
+        const answer = {
+            type: "answer",
+            sdp: answerSdp,
+        };
+        
+        await this.pc.setRemoteDescription(answer);
+        
+        // Handle connection state
+        this.pc.onconnectionstatechange = () => {
+            console.log('Connection state:', this.pc.connectionState);
+        };
+        
+        this.pc.oniceconnectionstatechange = () => {
+            console.log('ICE connection state:', this.pc.iceConnectionState);
+        };
+    }
+    
+    onConnected() {
+        console.log('Successfully connected to Realtime API');
+        // Initial session update can be sent here if needed
+    }
+    
+    handleServerEvent(event) {
+        switch (event.type) {
+            case 'session.created':
+                console.log('Session created:', event.session.id);
+                break;
+            case 'session.updated':
+                console.log('Session updated');
+                break;
+            case 'input_audio_buffer.speech_started':
+                console.log('Speech started');
+                break;
+            case 'input_audio_buffer.speech_stopped':
+                console.log('Speech stopped');
+                break;
+            case 'response.created':
+                console.log('Response created');
+                break;
+            case 'response.audio_transcript.delta':
+                console.log('Transcript:', event.delta);
+                break;
+            case 'response.done':
+                console.log('Response completed');
+                break;
+            case 'error':
+                console.error('Server error:', event);
+                break;
+            default:
+                console.log('Unhandled event:', event.type);
+        }
+    }
+    
+    sendEvent(event) {
+        if (this.dc && this.dc.readyState === 'open') {
+            this.dc.send(JSON.stringify(event));
+        } else {
+            console.warn('Data channel not ready');
+        }
+    }
+    
+    updateSession(sessionUpdate) {
+        this.sendEvent({
+            type: "session.update",
+            session: sessionUpdate
+        });
+    }
+    
+    sendTextMessage(text) {
+        // Create conversation item
+        this.sendEvent({
+            type: "conversation.item.create",
+            item: {
+                type: "message",
+                role: "user",
+                content: [{
+                    type: "input_text",
+                    text: text
+                }]
+            }
+        });
+        
+        // Create response
+        this.sendEvent({
+            type: "response.create"
+        });
+    }
+    
+    async disconnect() {
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+        }
+        
+        if (this.dc) {
+            this.dc.close();
+        }
+        
+        if (this.pc) {
+            this.pc.close();
+        }
+        
+        this.isConnected = false;
+    }
+}
+```
+
+### Advanced WebRTC Features
+
+#### Audio Device Selection
+```javascript
+async function getAudioDevices() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter(device => device.kind === 'audioinput');
+}
+
+async function selectAudioDevice(deviceId) {
+    const constraints = {
+        audio: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        }
+    };
+    
+    return await navigator.mediaDevices.getUserMedia(constraints);
+}
+```
+
+#### Mute/Unmute Controls
+```javascript
+class AudioControls {
+    constructor(localStream) {
+        this.localStream = localStream;
+        this.isMuted = false;
+    }
+    
+    toggleMute() {
+        const audioTrack = this.localStream.getAudioTracks()[0];
+        if (audioTrack) {
+            this.isMuted = !this.isMuted;
+            audioTrack.enabled = !this.isMuted;
+        }
+        return this.isMuted;
+    }
+    
+    setVolume(volume) {
+        // Volume control for output audio
+        if (this.audioElement) {
+            this.audioElement.volume = Math.max(0, Math.min(1, volume));
+        }
+    }
+}
+```
+
+#### Connection Quality Monitoring
+```javascript
+class ConnectionMonitor {
+    constructor(peerConnection) {
+        this.pc = peerConnection;
+        this.stats = {};
+    }
+    
+    async getStats() {
+        const stats = await this.pc.getStats();
+        const report = {};
+        
+        stats.forEach((stat) => {
+            if (stat.type === 'inbound-rtp' && stat.kind === 'audio') {
+                report.inbound = {
+                    packetsReceived: stat.packetsReceived,
+                    packetsLost: stat.packetsLost,
+                    jitter: stat.jitter,
+                    audioLevel: stat.audioLevel
+                };
+            }
+            
+            if (stat.type === 'outbound-rtp' && stat.kind === 'audio') {
+                report.outbound = {
+                    packetsSent: stat.packetsSent,
+                    bytesSent: stat.bytesSent
+                };
+            }
+            
+            if (stat.type === 'candidate-pair' && stat.selected) {
+                report.connection = {
+                    currentRoundTripTime: stat.currentRoundTripTime,
+                    availableOutgoingBitrate: stat.availableOutgoingBitrate
+                };
+            }
+        });
+        
+        return report;
+    }
+    
+    startMonitoring(interval = 5000) {
+        setInterval(async () => {
+            const stats = await this.getStats();
+            console.log('Connection stats:', stats);
+            
+            // Check for connection issues
+            if (stats.connection?.currentRoundTripTime > 0.5) {
+                console.warn('High latency detected');
+            }
+        }, interval);
+    }
+}
+```
+
+## Complete React Component Example
+
+```jsx
+import React, { useState, useEffect, useRef } from 'react';
+
+const RealtimeVoiceChat = () => {
+    const [isConnected, setIsConnected] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [isMuted, setIsMuted] = useState(false);
+    const [transcript, setTranscript] = useState('');
+    const [error, setError] = useState(null);
+    
+    const clientRef = useRef(null);
+    const audioControlsRef = useRef(null);
+    
+    useEffect(() => {
+        return () => {
+            if (clientRef.current) {
+                clientRef.current.disconnect();
+            }
+        };
+    }, []);
+    
+    const connect = async () => {
+        setIsConnecting(true);
+        setError(null);
+        
+        try {
+            const client = new RealtimeWebRTCClient();
+            
+            // Override handleServerEvent to update UI
+            const originalHandler = client.handleServerEvent;
+            client.handleServerEvent = (event) => {
+                originalHandler.call(client, event);
+                
+                if (event.type === 'response.audio_transcript.delta') {
+                    setTranscript(prev => prev + event.delta);
+                } else if (event.type === 'response.done') {
+                    setTranscript(''); // Clear for next response
+                }
+            };
+            
+            client.onConnected = () => {
+                setIsConnected(true);
+                setIsConnecting(false);
+                
+                // Set up audio controls
+                audioControlsRef.current = new AudioControls(client.localStream);
+            };
+            
+            await client.connect();
+            clientRef.current = client;
+            
+        } catch (err) {
+            setError(err.message);
+            setIsConnecting(false);
+        }
+    };
+    
+    const disconnect = async () => {
+        if (clientRef.current) {
+            await clientRef.current.disconnect();
+            clientRef.current = null;
+        }
+        setIsConnected(false);
+        setTranscript('');
+    };
+    
+    const toggleMute = () => {
+        if (audioControlsRef.current) {
+            const muted = audioControlsRef.current.toggleMute();
+            setIsMuted(muted);
+        }
+    };
+    
+    const sendMessage = () => {
+        const text = prompt('Enter text message:');
+        if (text && clientRef.current) {
+            clientRef.current.sendTextMessage(text);
+        }
+    };
+    
+    return (
+        <div className="realtime-chat">
+            <h2>Realtime Voice Chat</h2>
+            
+            {error && (
+                <div className="error">
+                    Error: {error}
+                </div>
+            )}
+            
+            <div className="controls">
+                {!isConnected ? (
+                    <button 
+                        onClick={connect} 
+                        disabled={isConnecting}
+                    >
+                        {isConnecting ? 'Connecting...' : 'Connect'}
+                    </button>
+                ) : (
+                    <>
+                        <button onClick={disconnect}>
+                            Disconnect
+                        </button>
+                        <button onClick={toggleMute}>
+                            {isMuted ? 'Unmute' : 'Mute'}
+                        </button>
+                        <button onClick={sendMessage}>
+                            Send Text
+                        </button>
+                    </>
+                )}
+            </div>
+            
+            {isConnected && (
+                <div className="status">
+                    <div className="connection-indicator">
+                        🟢 Connected
+                    </div>
+                    <div className="mic-status">
+                        🎤 {isMuted ? 'Muted' : 'Active'}
+                    </div>
+                </div>
+            )}
+            
+            {transcript && (
+                <div className="transcript">
+                    <h3>AI Response:</h3>
+                    <p>{transcript}</p>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default RealtimeVoiceChat;
+```
+
+## Best Practices
+
+### Security
+- **Never expose standard API keys**: Always use ephemeral keys for client-side
+- **Validate tokens server-side**: Implement proper authentication on your token endpoint
+- **Set appropriate CORS policies**: Restrict origins that can request tokens
+- **Monitor usage**: Track ephemeral key generation and usage
+
+### Performance
+- **Use appropriate audio constraints**: Balance quality with bandwidth
+- **Implement connection pooling**: Reuse connections when possible
+- **Handle network changes**: Implement reconnection logic for mobile
+- **Monitor WebRTC stats**: Track connection quality and adjust accordingly
+
+### User Experience
+- **Permission handling**: Request microphone access gracefully
+- **Connection states**: Provide clear feedback on connection status
+- **Error recovery**: Implement retry logic with exponential backoff
+- **Accessibility**: Support keyboard navigation and screen readers
+
+### Audio Quality
+- **Echo cancellation**: Enable browser echo cancellation
+- **Noise suppression**: Use browser noise suppression features
+- **Sample rate**: Use 16kHz for optimal performance
+- **Buffer management**: Monitor audio buffer levels
+
+This WebRTC implementation provides a robust foundation for building high-quality voice applications with the OpenAI Realtime API.

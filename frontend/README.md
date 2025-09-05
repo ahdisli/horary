@@ -146,7 +146,7 @@ Built with Shadcn/UI for consistency and accessibility:
 ## 🔊 Voice Features
 
 - Real-time voice input via OpenAI Realtime API
-- WebSocket connection for low-latency interaction
+- WebRTC connection for low-latency interaction
 - Tool calling for dynamic astrology data
 - Natural language processing for horary questions
 

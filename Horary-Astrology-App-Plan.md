@@ -16,9 +16,9 @@ Tech Stack
 Frontend
 
 Framework: Next.js (React-based)
-Reasons: Server-side rendering, API routes, WebSocket support for OpenAI Realtime API, and easy scaling to mobile with React Native.
+Reasons: Server-side rendering, API routes, WebRTC support for OpenAI Realtime API, and easy scaling to mobile with React Native.
 UI Libraries: Tailwind CSS + Shadcn/UI for rapid, customizable styling.
-State Management: Zustand or Jotai for lightweight, real-time updates.
+State Management: Zustand for lightweight, real-time updates.
 Animations: Framer Motion for futuristic effects (e.g., animated star maps).
 
 
@@ -122,7 +122,7 @@ Next Steps
 MVP Development:
 Implement core tools: getUserDetails, getCurrentPlanetaryPositions, getZodiacInsights.
 Set up Next.js frontend with Tailwind CSS and Supabase client.
-Integrate OpenAI Realtime API with WebSocket for voice input.
+Integrate OpenAI Realtime API with WebRTC for voice input.
 Deploy frontend on Render, backend on Supabase.
 
 
